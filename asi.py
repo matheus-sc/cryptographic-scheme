@@ -1,247 +1,323 @@
+import hashlib
+import math
 import os
+import statistics
 import time
+import cv2
 
 VIDEO_PATH = "./lava-lamp.mp4"
 
 
-def str_to_bits(s: str) -> list[int]:
+def string_to_bits(text: str) -> list[int]:
     """Converte uma string para uma lista de bits (0s e 1s)."""
     bits = []
-    for char in s:
-        # Pega o valor ASCII, converte p/ binário, remove '0b', preenche com 0 à esq (8 bits)
-        bin_val = bin(ord(char))[2:].zfill(8)
-        bits.extend([int(b) for b in bin_val])
+    for character in text:
+        binary_value = bin(ord(character))[2:].zfill(8)
+        bits.extend([int(bit) for bit in binary_value])
     return bits
 
 
-def bits_to_str(bits: list[int]) -> str:
+def bits_to_string(bits: list[int]) -> str:
     """Converte uma lista de bits de volta para texto."""
-    chars = []
-    for i in range(0, len(bits), 8):
-        byte_chunk = bits[i : i + 8]
-        # Se sobrar pedaço menor que 8 bits, ignora
+    characters = []
+    for index in range(0, len(bits), 8):
+        byte_chunk = bits[index : index + 8]
         if len(byte_chunk) < 8:
             break
-        char_code = int("".join(map(str, byte_chunk)), 2)
-        chars.append(chr(char_code))
-    return "".join(chars)
+        character_code = int("".join(map(str, byte_chunk)), 2)
+        characters.append(chr(character_code))
+    return "".join(characters)
 
 
-def get_video_entropy_bits(video_path: str, num_bits: int = 128) -> list[int]:
+def extract_video_entropy(video_path: str, num_bits: int = 128) -> list[int]:
     """
-    Extrai entropia de um vídeo (ex: lâmpadas de lava).
-    Inspirado no sistema da Cloudflare.
+    Extrai entropia de um vídeo usando pixels aleatórios de frames aleatórios.
+    Inspirado no sistema de lava lamps da Cloudflare para geração de entropia.
     """
-    import hashlib
-
-    import cv2
-
-    # Abre o vídeo
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_capture = cv2.VideoCapture(video_path)
+    total_frames = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
 
     if total_frames == 0:
-        cap.release()
+        video_capture.release()
         raise Exception("Vídeo não encontrado ou inválido")
 
-    # Escolhe frame aleatório (baseado em tempo)
-    frame_aleatorio = int(time.time_ns()) % total_frames
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_aleatorio)
+    random_frame = int(time.time_ns()) % total_frames
+    video_capture.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
 
-    ret, frame = cap.read()
-    if not ret:
-        cap.release()
+    success, frame = video_capture.read()
+    if not success:
+        video_capture.release()
         raise Exception("Erro ao ler vídeo")
 
-    # Extrai valores RGB de pixels aleatórios
-    altura, largura, _ = frame.shape
-    pixels_entropia = []
+    height, width, _ = frame.shape
+    pixel_entropy = []
 
-    for _ in range(100):  # 100 pixels aleatórios
-        x = (int(time.time_ns()) ^ os.getpid()) % largura
-        y = (int(time.time_ns()) ^ id(object())) % altura
-        pixel = frame[y, x]  # [B, G, R]
-        pixels_entropia.extend(pixel)
+    for _ in range(100):
+        x_coordinate = (int(time.time_ns()) ^ os.getpid()) % width
+        y_coordinate = (int(time.time_ns()) ^ id(object())) % height
+        pixel = frame[y_coordinate, x_coordinate]
+        pixel_entropy.extend(pixel)
 
-    # Hash SHA-256 para garantir distribuição uniforme
-    dados_brutos = bytes(pixels_entropia)
-    hash_obj = hashlib.sha256(dados_brutos)
-    hash_hex = hash_obj.hexdigest()
+    raw_data = bytes(pixel_entropy)
+    hash_object = hashlib.sha256(raw_data)
+    hash_hex = hash_object.hexdigest()
 
-    # Converte para bits
-    hash_int = int(hash_hex, 16)
-    bin_val = bin(hash_int)[2:].zfill(256)
+    hash_integer = int(hash_hex, 16)
+    binary_value = bin(hash_integer)[2:].zfill(256)
 
-    cap.release()
-    return [int(b) for b in bin_val[:num_bits]]
+    video_capture.release()
+    return [int(bit) for bit in binary_value[:num_bits]]
 
 
-def GEN(seed: list[int]) -> list[int]:
-    import hashlib
-
-    K = []
-
-    # Converte seed para bytes e faz hash para evitar colisões
-    seed_str = "".join(map(str, seed))
-    seed_bytes = seed_str.encode()
-    hash_seed = hashlib.sha256(seed_bytes).digest()
-
-    # Usa os primeiros 4 bytes do hash como estado inicial
-    estado = int.from_bytes(hash_seed[:4], byteorder="big")
-
-    # Parâmetros para garantir boa "Confusão" (números primos grandes)
-    a = 1664525
-    c = 1013904223
-    m = 2**32
-
-    # O tamanho alvo é 4 vezes o tamanho da seed
-    tamanho_alvo = len(seed) * 4
-
-    # Gera bit a bit
-    for _ in range(tamanho_alvo):
-        # Fórmula: X_next = (a * X_curr + c) % m
-        estado = (a * estado + c) % m
-
-        # Pega um bit do resultado (bit 7 para variar mais)
-        bit = (estado >> 7) & 1
-        K.append(bit)
-
-    return K
-
-
-def expandir_chave(K: list[int], tamanho_necessario: int) -> list[int]:
+def generate_key(seed: list[int]) -> list[int]:
     """
-    Expande a chave K até ter o tamanho necessário.
-    Permite cifrar mensagens de qualquer tamanho.
+    Gera uma chave criptográfica usando um Linear Congruential Generator (LCG).
+    A chave terá 4 vezes o tamanho da seed de entrada.
     """
-    if len(K) >= tamanho_necessario:
-        return K[:tamanho_necessario]
+    key = []
 
-    K_expandida = K.copy()
+    seed_string = "".join(map(str, seed))
+    seed_bytes = seed_string.encode()
+    seed_hash = hashlib.sha256(seed_bytes).digest()
 
-    while len(K_expandida) < tamanho_necessario:
-        # Usa os últimos bits da chave como seed para gerar mais
-        # Pega pelo menos 32 bits para a seed, ou o que tiver disponível
-        seed_size = min(32, len(K_expandida))
-        nova_seed = K_expandida[-seed_size:]
+    state = int.from_bytes(seed_hash[:4], byteorder="big")
 
-        # Gera mais bits
-        novos_bits = GEN(nova_seed)
-        K_expandida.extend(novos_bits)
+    lcg_multiplier = 1664525
+    lcg_increment = 1013904223
+    lcg_modulus = 2**32
 
-    return K_expandida[:tamanho_necessario]
+    target_size = len(seed) * 4
 
+    for _ in range(target_size):
+        state = (lcg_multiplier * state + lcg_increment) % lcg_modulus
+        bit = (state >> 7) & 1
+        key.append(bit)
 
-def ENC(K: list[int], M: list[int]) -> list[int]:
-    # Expande a chave automaticamente se a mensagem for maior
-    if len(K) < len(M):
-        K = expandir_chave(K, len(M))
-
-    # Trunca K se for maior que M
-    K = K[: len(M)]
-
-    C = []
-    ultimo_bit_cifra = 0  # Valor inicial (IV virtual)
-
-    for i in range(len(M)):
-        # C[i] = M[i] XOR K[i] XOR C[i-1]
-        # Isso faz com que mudar 1 bit no começo mude tudo depois (Difusão)
-        bit_cifra = M[i] ^ K[i] ^ ultimo_bit_cifra
-        C.append(bit_cifra)
-        ultimo_bit_cifra = bit_cifra
-
-    return C
+    return key
 
 
-def DEC(K: list[int], C: list[int]) -> list[int]:
-    # Expande a chave automaticamente se a cifra for maior
-    if len(K) < len(C):
-        K = expandir_chave(K, len(C))
+def expand_key(key: list[int], required_size: int) -> list[int]:
+    """
+    Expande a chave até atingir o tamanho necessário para cifrar a mensagem.
+    Utiliza o próprio gerador de chaves recursivamente.
+    """
+    if len(key) >= required_size:
+        return key[:required_size]
 
-    # Trunca K se for maior que C
-    K = K[: len(C)]
+    expanded_key = key.copy()
 
-    M = []
-    ultimo_bit_cifra = 0
+    while len(expanded_key) < required_size:
+        seed_size = min(32, len(expanded_key))
+        new_seed = expanded_key[-seed_size:]
+        new_bits = generate_key(new_seed)
+        expanded_key.extend(new_bits)
 
-    for i in range(len(C)):
-        # Reverte a lógica: M[i] = C[i] XOR K[i] XOR C[i-1]
-        bit_msg = C[i] ^ K[i] ^ ultimo_bit_cifra
-        M.append(bit_msg)
-        ultimo_bit_cifra = C[i]  # Atualiza para o próximo passo
+    return expanded_key[:required_size]
 
-    return M
+
+def encrypt(key: list[int], message: list[int]) -> list[int]:
+    """
+    Cifra uma mensagem usando um esquema de múltiplas rodadas com permutação.
+    Implementa 3 rodadas de XOR com feedback e permutação para garantir difusão completa.
+    """
+    if len(key) < len(message) * 3:
+        key = expand_key(key, len(message) * 3)
+
+    ciphertext = message.copy()
+    size = len(ciphertext)
+
+    for round_number in range(3):
+        round_key = key[round_number * size : (round_number + 1) * size]
+
+        initialization_vector = _generate_initialization_vector(round_key, round_number)
+
+        ciphertext = _apply_xor_with_feedback(
+            ciphertext, round_key, initialization_vector
+        )
+
+        if round_number < 2:
+            ciphertext = _permute_bits(ciphertext, round_key, round_number)
+
+    return ciphertext
+
+
+def decrypt(key: list[int], ciphertext: list[int]) -> list[int]:
+    """
+    Decifra uma mensagem revertendo as operações de cifragem.
+    Processa as rodadas em ordem inversa.
+    """
+    if len(key) < len(ciphertext) * 3:
+        key = expand_key(key, len(ciphertext) * 3)
+
+    message = ciphertext.copy()
+    size = len(message)
+
+    for round_number in range(2, -1, -1):
+        if round_number < 2:
+            round_key = key[round_number * size : (round_number + 1) * size]
+            message = _reverse_permute_bits(message, round_key, round_number)
+
+        round_key = key[round_number * size : (round_number + 1) * size]
+        initialization_vector = _generate_initialization_vector(round_key, round_number)
+        message = _reverse_xor_with_feedback(message, round_key, initialization_vector)
+
+    return message
+
+
+def _generate_initialization_vector(
+    round_key: list[int], round_number: int
+) -> list[int]:
+    """Gera um vetor de inicialização único para cada rodada baseado na chave."""
+    iv_seed = str(round_number) + "".join(
+        map(str, round_key[: min(16, len(round_key))])
+    )
+    iv_hash = hashlib.sha256(iv_seed.encode()).digest()
+    return [int(bit) for bit in bin(iv_hash[0])[2:].zfill(8)]
+
+
+def _apply_xor_with_feedback(
+    data: list[int], round_key: list[int], initialization_vector: list[int]
+) -> list[int]:
+    """Aplica XOR com feedback usando um buffer circular de 8 bits."""
+    history = initialization_vector.copy()
+    result = []
+
+    for index in range(len(data)):
+        feedback = 0
+        for history_bit in history:
+            feedback ^= history_bit
+
+        cipher_bit = data[index] ^ round_key[index] ^ feedback
+        result.append(cipher_bit)
+        history = history[1:] + [cipher_bit]
+
+    return result
+
+
+def _reverse_xor_with_feedback(
+    data: list[int], round_key: list[int], initialization_vector: list[int]
+) -> list[int]:
+    """Reverte a operação de XOR com feedback."""
+    history = initialization_vector.copy()
+    result = []
+
+    for index in range(len(data)):
+        feedback = 0
+        for history_bit in history:
+            feedback ^= history_bit
+
+        message_bit = data[index] ^ round_key[index] ^ feedback
+        result.append(message_bit)
+        history = history[1:] + [data[index]]
+
+    return result
+
+
+def _permute_bits(
+    data: list[int], round_key: list[int], round_number: int
+) -> list[int]:
+    """
+    Permuta os bits usando uma função linear dependente da chave.
+    Garante que a permutação varie com diferentes chaves.
+    """
+    size = len(data)
+    permuted = [0] * size
+
+    permutation_seed = str(round_number) + "".join(
+        map(str, round_key[: min(32, len(round_key))])
+    )
+    permutation_hash = hashlib.sha256(permutation_seed.encode()).digest()
+
+    multiplier = int.from_bytes(permutation_hash[0:2], "big") % size
+    offset = int.from_bytes(permutation_hash[2:4], "big") % size
+
+    while multiplier == 0 or math.gcd(multiplier, size) != 1:
+        multiplier = (multiplier + 1) % size
+        if multiplier == 0:
+            multiplier = 1
+
+    for index in range(size):
+        new_position = (multiplier * index + offset) % size
+        permuted[new_position] = data[index]
+
+    return permuted
+
+
+def _reverse_permute_bits(
+    data: list[int], round_key: list[int], round_number: int
+) -> list[int]:
+    """Reverte a permutação de bits."""
+    size = len(data)
+    unpermuted = [0] * size
+
+    permutation_seed = str(round_number) + "".join(
+        map(str, round_key[: min(32, len(round_key))])
+    )
+    permutation_hash = hashlib.sha256(permutation_seed.encode()).digest()
+
+    multiplier = int.from_bytes(permutation_hash[0:2], "big") % size
+    offset = int.from_bytes(permutation_hash[2:4], "big") % size
+
+    while multiplier == 0 or math.gcd(multiplier, size) != 1:
+        multiplier = (multiplier + 1) % size
+        if multiplier == 0:
+            multiplier = 1
+
+    for index in range(size):
+        new_position = (multiplier * index + offset) % size
+        unpermuted[index] = data[new_position]
+
+    return unpermuted
 
 
 if __name__ == "__main__":
-    print("--- Início do Trabalho ---")
+    print("=== Sistema Criptográfico ===\n")
 
-    # 1. Gerar Seed (Baseada em entropia de vídeo - lâmpadas de lava)
-    seed = get_video_entropy_bits(VIDEO_PATH, num_bits=64)
-    print(f"Seed gerada ({len(seed)} bits): {seed}")
+    seed = extract_video_entropy(VIDEO_PATH, num_bits=64)
+    key = generate_key(seed)
+    print(f"Seed: {len(seed)} bits | Chave: {len(key)} bits")
 
-    # 2. Gerar Chave (GEN)
-    # A chave base terá 4x o tamanho da seed (64 bits * 4 = 256 bits)
-    inicio_gen = time.time()
-    chave = GEN(seed)
-    fim_gen = time.time()
-    print(f"Chave gerada ({len(chave)} bits): {chave[:10]}... (truncado)")
-    print(f"Tempo de execução GEN: {fim_gen - inicio_gen:.6f}s")
+    original_text = "Esta mensagem testa expansao!"
+    message_bits = string_to_bits(original_text)
 
-    # 3. Definir Mensagem
-    # A mensagem pode ter qualquer tamanho - a chave será expandida automaticamente
-    # Mensagem de 30 caracteres = 240 bits (chave de 256 bits será truncada para 240)
-    texto_original = "Esta mensagem testa expansao!"
-    msg_bits = str_to_bits(texto_original)
+    ciphertext = encrypt(key, message_bits)
+    decrypted_bits = decrypt(key, ciphertext)
+    decrypted_text = bits_to_string(decrypted_bits)
 
-    print(f"\nMensagem Original: '{texto_original}'")
-    print(f"Bits Mensagem ({len(msg_bits)} bits): {msg_bits}")
+    print(f"Mensagem: '{original_text}'")
+    print(f"Decifrada: '{decrypted_text}'")
+    print(f"Status: {'✓ Sucesso' if message_bits == decrypted_bits else '✗ Erro'}\n")
 
-    # 4. Criptografar (ENC)
-    cifra = ENC(chave, msg_bits)
-    print(f"Cifra gerada: {cifra}")
+    print("=== Teste de Difusão ===")
 
-    # 5. Descriptografar (DEC)
-    msg_recuperada_bits = DEC(chave, cifra)
-    texto_recuperado = bits_to_str(msg_recuperada_bits)
-    print(f"Texto Recuperado: '{texto_recuperado}'")
+    diffusion_percentages = []
+    for position in range(len(message_bits)):
+        modified_message = message_bits.copy()
+        modified_message[position] = 1 - modified_message[position]
+        modified_ciphertext = encrypt(key, modified_message)
+        differences = sum(
+            1 for i in range(len(ciphertext)) if ciphertext[i] != modified_ciphertext[i]
+        )
+        percentage = (differences / len(ciphertext)) * 100
+        diffusion_percentages.append(percentage)
 
-    # Verificação
-    if msg_bits == msg_recuperada_bits:
-        print("\nSUCESSO: A mensagem descriptografada é igual à original.")
-    else:
-        print("\nERRO: A mensagem foi corrompida.")
+    mean = statistics.mean(diffusion_percentages)
+    average_differences = int(mean * len(ciphertext) / 100)
 
-    print("\n--- Teste Rápido de Difusão (Critério 3) ---")
-    # Vamos mudar o primeiro bit da mensagem e ver quantos bits da cifra mudam
-    msg_bits_mod = msg_bits.copy()
-    msg_bits_mod[0] = 1 - msg_bits_mod[0]  # Inverte o primeiro bit
-
-    cifra_mod = ENC(chave, msg_bits_mod)
-
-    diferencas = sum([1 for i in range(len(cifra)) if cifra[i] != cifra_mod[i]])
-    porcentagem = (diferencas / len(cifra)) * 100
     print(
-        f"Ao mudar 1 bit na mensagem, {diferencas} bits mudaram na cifra ({porcentagem:.1f}%)."
+        f"Mudança na mensagem: {average_differences}/{len(ciphertext)} bits alterados na cifra ({mean:.1f}%)\n"
     )
-    print("Nota: Devido ao 'Feedback' no ENC, isso deve ser alto (aprox 50%).")
 
-    print("\n--- Teste de Confusão (Critério 4) ---")
-    # Vamos mudar o primeiro bit da seed e ver quantos bits da cifra mudam
-    seed_mod = seed.copy()
-    seed_mod[0] = 1 - seed_mod[0]  # Inverte o primeiro bit da seed
-
-    # Gera nova chave com seed modificada
-    chave_mod = GEN(seed_mod)
-
-    # Cifra a MESMA mensagem com a chave modificada
-    cifra_mod_conf = ENC(chave_mod, msg_bits)
-
-    diferencas_conf = sum(
-        [1 for i in range(len(cifra)) if cifra[i] != cifra_mod_conf[i]]
+    print("=== Teste de Confusão ===")
+    modified_seed = seed.copy()
+    modified_seed[0] = 1 - modified_seed[0]
+    modified_key = generate_key(modified_seed)
+    confusion_ciphertext = encrypt(modified_key, message_bits)
+    confusion_differences = sum(
+        1 for i in range(len(ciphertext)) if ciphertext[i] != confusion_ciphertext[i]
     )
-    porcentagem_conf = (diferencas_conf / len(cifra)) * 100
+    confusion_percentage = (confusion_differences / len(ciphertext)) * 100
+
     print(
-        f"Ao mudar 1 bit na seed, {diferencas_conf} bits mudaram na cifra ({porcentagem_conf:.1f}%)."
+        f"Mudança na seed: {confusion_differences}/{len(ciphertext)} bits alterados na cifra ({confusion_percentage:.1f}%)"
     )
-    print("Nota: Devido ao LCG no GEN, isso deve ser alto (aprox 50%).")
