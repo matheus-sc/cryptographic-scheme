@@ -3,6 +3,7 @@ import math
 import os
 import statistics
 import time
+
 import cv2
 
 VIDEO_PATH = "./lava-lamp.mp4"
@@ -69,7 +70,7 @@ def extract_video_entropy(video_path: str, num_bits: int = 128) -> list[int]:
     return [int(bit) for bit in binary_value[:num_bits]]
 
 
-def generate_key(seed: list[int]) -> list[int]:
+def GEN(seed: list[int]) -> list[int]:
     """
     Gera uma chave criptográfica usando um Linear Congruential Generator (LCG).
     A chave terá 4 vezes o tamanho da seed de entrada.
@@ -109,13 +110,13 @@ def expand_key(key: list[int], required_size: int) -> list[int]:
     while len(expanded_key) < required_size:
         seed_size = min(32, len(expanded_key))
         new_seed = expanded_key[-seed_size:]
-        new_bits = generate_key(new_seed)
+        new_bits = GEN(new_seed)
         expanded_key.extend(new_bits)
 
     return expanded_key[:required_size]
 
 
-def encrypt(key: list[int], message: list[int]) -> list[int]:
+def ENC(key: list[int], message: list[int]) -> list[int]:
     """
     Cifra uma mensagem usando um esquema de múltiplas rodadas com permutação.
     Implementa 3 rodadas de XOR com feedback e permutação para garantir difusão completa.
@@ -141,7 +142,7 @@ def encrypt(key: list[int], message: list[int]) -> list[int]:
     return ciphertext
 
 
-def decrypt(key: list[int], ciphertext: list[int]) -> list[int]:
+def DEC(key: list[int], ciphertext: list[int]) -> list[int]:
     """
     Decifra uma mensagem revertendo as operações de cifragem.
     Processa as rodadas em ordem inversa.
@@ -276,14 +277,14 @@ if __name__ == "__main__":
     print("=== Sistema Criptográfico ===\n")
 
     seed = extract_video_entropy(VIDEO_PATH, num_bits=64)
-    key = generate_key(seed)
+    key = GEN(seed)
     print(f"Seed: {len(seed)} bits | Chave: {len(key)} bits")
 
     original_text = "Esta mensagem testa expansao!"
     message_bits = string_to_bits(original_text)
 
-    ciphertext = encrypt(key, message_bits)
-    decrypted_bits = decrypt(key, ciphertext)
+    ciphertext = ENC(key, message_bits)
+    decrypted_bits = DEC(key, ciphertext)
     decrypted_text = bits_to_string(decrypted_bits)
 
     print(f"Mensagem: '{original_text}'")
@@ -296,7 +297,7 @@ if __name__ == "__main__":
     for position in range(len(message_bits)):
         modified_message = message_bits.copy()
         modified_message[position] = 1 - modified_message[position]
-        modified_ciphertext = encrypt(key, modified_message)
+        modified_ciphertext = ENC(key, modified_message)
         differences = sum(
             1 for i in range(len(ciphertext)) if ciphertext[i] != modified_ciphertext[i]
         )
@@ -313,8 +314,8 @@ if __name__ == "__main__":
     print("=== Teste de Confusão ===")
     modified_seed = seed.copy()
     modified_seed[0] = 1 - modified_seed[0]
-    modified_key = generate_key(modified_seed)
-    confusion_ciphertext = encrypt(modified_key, message_bits)
+    modified_key = GEN(modified_seed)
+    confusion_ciphertext = ENC(modified_key, message_bits)
     confusion_differences = sum(
         1 for i in range(len(ciphertext)) if ciphertext[i] != confusion_ciphertext[i]
     )
