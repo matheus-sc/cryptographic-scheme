@@ -271,6 +271,8 @@ def _reverse_permute_bits(
 
 
 if __name__ == "__main__":
+    start_time = time.perf_counter()
+
     print("=== Sistema Criptográfico ===\n")
 
     seed = extract_video_entropy(VIDEO_PATH, num_bits=64)
@@ -286,7 +288,7 @@ if __name__ == "__main__":
 
     print(f"Mensagem: '{original_text}'")
     print(f"Decifrada: '{decrypted_text}'")
-    print(f"Status: {'✓ Sucesso' if message_bits == decrypted_bits else '✗ Erro'}\n")
+    print(f"Status: {'Sucesso' if message_bits == decrypted_bits else 'Erro'}\n")
 
     print("=== Teste de Difusão ===")
 
@@ -321,3 +323,7 @@ if __name__ == "__main__":
     print(
         f"Mudança na seed: {confusion_differences}/{len(ciphertext)} bits alterados na cifra ({confusion_percentage:.1f}%)"
     )
+
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"\nTempo de execução: {execution_time:.4f} segundos")
